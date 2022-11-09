@@ -2,12 +2,12 @@
 
 ## 概述
 新的外部执行器通信通道由三元组组成，使得支持可配置的各种通信方式成为可能。
-- Low level underlying IO (Pipe、 TCP、...)
-- Framed IO (LengthDelimitedCodec、LinesCodec、...)
-- Serded IO (Json, Bincode、...)
+- Low level underlying IO (Pipe、 TCP、...)             // 最底层的纯字节 IO
+- Framed IO (LengthDelimitedCodec、LinesCodec、...)     // 中间层用于区分每个数据包的 IO（aka: 处理粘包）
+- Serded IO (Json, Bincode、...)                        // 序列化层  
 
 ### 例:
-#### 1. 兼容 venus-cluster v0.5 现有的通行方式 (Pipe + LinesCodec + Json)
+#### 1. 兼容 venus-cluster v0.5 现有的通信方式 (Pipe + LinesCodec + Json)
 ```rust
 reconnect::<Pipe, _, _>(Path::from("/bin/cat"), repeat(Duration::from_secs(1)))
     .framed(LinesCodec::default())
