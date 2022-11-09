@@ -22,17 +22,15 @@ reconnect::<TcpStream, _, _>("127.0.0.1:8964", repeat(Duration::from_secs(1)))
 ```
 
 ## 重试
-reconnect 函数第一个参数是 Low level underlying IO 的构造参数(取决于泛型)，第二个参数是重试迭代器。返回值也是属于 Low level underlying IO
+重试属于 Low level underlying IO，连接到底层的 IO 中。
+对于 TCP 连接来说，重试则是TCP断开重新自动连接。对于 Pipe 来说，重试则是子进程挂起，自动重启子进程。
+
+reconnect 函数第一个参数是 Low level underlying IO 的构造参数(取决于泛型)，第二个参数是重试迭代器。
 
 ### 例:
 #### 1. 无限制的每一秒重试一次
 ```rust
 reconnect::<Pipe, _, _>(Path::from("/bin/cat"), repeat(Duration::from_secs(1)))
-```
-
-#### 2. 每一秒重试一次最多重试 3 次
-```rust
-reconnect::<Pipe, _, _>(Path::from("/bin/cat"), repeat(Duration::from_secs(1)).take(3))
 ```
 
 #### 2. 每一秒重试一次最多重试 3 次
