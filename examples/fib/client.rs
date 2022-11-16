@@ -19,7 +19,7 @@ use tracing_subscriber::{
 };
 
 /// initiate the global tracing subscriber
-pub fn init() -> anyhow::Result<()> {
+pub fn init_log() -> anyhow::Result<()> {
     let env_filter = filter::EnvFilter::builder()
         .with_default_directive(filter::LevelFilter::INFO.into())
         .from_env()
@@ -47,7 +47,7 @@ pub fn init() -> anyhow::Result<()> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init()?;
+    init_log()?;
     let n: usize = args().nth(1).and_then(|x| x.parse().ok()).unwrap_or(5);
 
     let tp = reconnect::<TcpStream, _, _>("127.0.0.1:8964", repeat(Duration::from_secs(1)))

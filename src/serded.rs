@@ -57,7 +57,7 @@ where
     Codec: Deserializer<Item>,
     Codec::Error: Into<io::Error>,
 {
-    type Item = Result<Item, io::Error>;
+    type Item = io::Result<Item>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match ready!(self
