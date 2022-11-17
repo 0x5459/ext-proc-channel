@@ -1,25 +1,31 @@
 use std::{
+    any::Any,
     fmt::Debug,
     future::Future,
     io,
     marker::PhantomData,
     mem,
+    panic::UnwindSafe,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use futures::{ready, stream::Fuse, Sink, Stream, StreamExt};
+use futures::{
+    future::{CatchUnwind, Map},
+    ready,
+    stream::Fuse,
+    FutureExt, Sink, Stream, StreamExt,
+};
 use pin_project::pin_project;
 use tokio::sync::mpsc;
 
 use crate::{Request, Response, Transport, TransportError, TransportIOError};
 
+/// A Handler responds to an request.
 pub trait Handler<Req, Resp, E> {
-    type Fut<'a>: Future<Output = Result<Resp, E>> + Send + 'a
-    where
-        Self: 'a;
+    type Fut: Future<Output = Result<Resp, E>> + Send;
 
-    fn serve(&self, req: Req) -> Self::Fut<'_>;
+    fn serve(&self, req: Req) -> Self::Fut;
 }
 
 impl<Req, Resp, E, F, Fut> Handler<Req, Resp, E> for F
@@ -27,12 +33,45 @@ where
     F: Fn(Req) -> Fut,
     Fut: Future<Output = Result<Resp, E>> + Send + 'static,
 {
-    type Fut<'a> = Fut
-    where
-        Self: 'a;
+    type Fut = Fut;
 
-    fn serve(&self, req: Req) -> Self::Fut<'_> {
+    fn serve(&self, req: Req) -> Self::Fut {
         self(req)
+    }
+}
+
+pub struct PanicError(Box<dyn Any + Send>);
+
+#[derive(Clone)]
+pub struct TracingPanicHandler<H>(H);
+
+impl<H> TracingPanicHandler<H> {
+    pub fn new(inner: H) -> Self {
+        Self(inner)
+    }
+}
+
+impl<H, Req, Resp, E> Handler<Req, Resp, E> for TracingPanicHandler<H>
+where
+    H: Handler<Req, Resp, E>,
+    H::Fut: UnwindSafe,
+    E: From<PanicError>,
+{
+    type Fut = Map<
+        CatchUnwind<H::Fut>,
+        fn(
+            Result<<<H as Handler<Req, Resp, E>>::Fut as Future>::Output, Box<dyn Any + Send>>,
+        ) -> <<H as Handler<Req, Resp, E>>::Fut as Future>::Output,
+    >;
+
+    fn serve(&self, req: Req) -> Self::Fut {
+        self.0.serve(req).catch_unwind().map(|res| match res {
+            Ok(body) => body,
+            Err(panic_error) => {
+                tracing::error!(panic_error=?panic_error, "handler panic");
+                Err(PanicError(panic_error).into())
+            }
+        })
     }
 }
 
@@ -276,7 +315,11 @@ mod tests {
 
     use std::{convert::Infallible, fmt::Debug};
 
-    use crate::{client::Client, ChannelTransport, Request, Response};
+    use crate::{
+        client::{Client, RpcError},
+        server::{PanicError, TracingPanicHandler},
+        ChannelTransport, Request, Response,
+    };
 
     use super::Server;
 
@@ -295,6 +338,40 @@ mod tests {
 
         let resp = client.call("lbw".to_string()).await.unwrap();
         assert_eq!(resp, "hello lbw".to_string());
+    }
+
+    #[derive(Debug)]
+    struct MyError {
+        panic: bool,
+    }
+
+    impl From<PanicError> for MyError {
+        fn from(_pe: PanicError) -> Self {
+            Self { panic: true }
+        }
+    }
+    #[tokio::test]
+    async fn test_handler_panic() {
+        let (client, server_transport) = client();
+
+        tokio::spawn(Server::new(
+            Default::default(),
+            server_transport,
+            TracingPanicHandler::new(|req| async move {
+                if true {
+                    panic!("test panic");
+                }
+                // let the rust compiler infer the return value type
+                Ok::<_, MyError>(format!("hello {}", req))
+            }),
+        ));
+
+        let err = client.call("world".to_string()).await.err();
+        assert!(err.is_some());
+        assert!(matches!(
+            err.unwrap(),
+            RpcError::ServerError(MyError { panic: true })
+        ));
     }
 
     fn client<Req, Resp, E>() -> (

@@ -53,7 +53,7 @@ impl<Req, Resp, E> Client<Req, Resp, E> {
     pub fn new<TP>(
         config: Config,
         transport: TP,
-    ) -> NewClient<Self, RequestDispatch<TP, Req, Resp, E>>
+    ) -> NewClient<Self, RequestDispatcher<TP, Req, Resp, E>>
     where
         TP: Transport<Request<Req>, Response<Resp, E>, InnerError = io::Error>,
     {
@@ -65,7 +65,7 @@ impl<Req, Resp, E> Client<Req, Resp, E> {
                 send_requests,
             },
 
-            dispatch: RequestDispatch {
+            dispatch: RequestDispatcher {
                 transport: transport.fuse(),
                 pending_requests: recv_requests,
                 inflight_requests: InflightRequests::new(),
@@ -128,7 +128,7 @@ struct DispatchRequest<Req, Resp, E> {
 }
 
 #[pin_project]
-pub struct RequestDispatch<TP, Req, Resp, E> {
+pub struct RequestDispatcher<TP, Req, Resp, E> {
     #[pin]
     transport: Fuse<TP>,
     pending_requests: mpsc::Receiver<DispatchRequest<Req, Resp, E>>,
@@ -149,7 +149,7 @@ impl<Req, Resp, E> WriteState<Req, Resp, E> {
     }
 }
 
-impl<TP, Req, Resp, E> RequestDispatch<TP, Req, Resp, E>
+impl<TP, Req, Resp, E> RequestDispatcher<TP, Req, Resp, E>
 where
     TP: Transport<Request<Req>, Response<Resp, E>, InnerError = io::Error>,
 {
@@ -340,7 +340,7 @@ where
     }
 }
 
-impl<TP, Req, Resp, E> Future for RequestDispatch<TP, Req, Resp, E>
+impl<TP, Req, Resp, E> Future for RequestDispatcher<TP, Req, Resp, E>
 where
     TP: Transport<Request<Req>, Response<Resp, E>, InnerError = io::Error>,
 {
